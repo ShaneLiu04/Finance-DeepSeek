@@ -176,7 +176,7 @@ python run_training.py
 ### 1. 克隆与安装
 
 ```bash
-git clone https://github.com/yourusername/Finance-DeepSeek.git
+git clone https://github.com/ShaneLiu04/Finance-DeepSeek.git
 cd Finance-DeepSeek/finance_deepseek
 
 python -m venv venv
