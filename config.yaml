@@ -1,0 +1,108 @@
+# Finance-DeepSeek 全局配置
+# 基于 DeepSeek-R1-Distill-Qwen-1.5B 的金融领域推理增强问答系统
+
+project:
+  name: "Finance-DeepSeek"
+  version: "1.0.0"
+  seed: 42
+
+hardware:
+  device: "cuda"
+  max_gpu_memory_gb: 8
+  training_peak_memory_gb: 6.5
+  inference_peak_memory_gb: 4.0
+
+model:
+  base_model: "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+  # 若无法直接访问 HuggingFace，可配置本地路径
+  # ModelScope 下载路径: ./models/base/deepseek-ai/DeepSeek-R1-Distill-Qwen-1___5B
+  local_path: "./models/base/deepseek-ai/DeepSeek-R1-Distill-Qwen-1___5B"
+  max_seq_length: 2048
+  max_input_length: 1024
+  temperature: 0.6
+  top_p: 0.9
+  do_sample: true
+  
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: "bfloat16"
+
+lora:
+  r: 128
+  lora_alpha: 32
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  adapter_output_dir: "./models/adapters/finance_qlora"
+
+training:
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 2
+  num_train_epochs: 3
+  learning_rate: 1.0e-4
+  warmup_ratio: 0.03
+  lr_scheduler_type: "cosine"
+  group_by_length: true
+  gradient_checkpointing: true
+  optim: "paged_adamw_8bit"
+  logging_steps: 10
+  save_strategy: "epoch"
+  output_dir: "./models/adapters/finance_qlora"
+  report_to: "none"
+  # SFT 数据路径
+  train_data_path: "./data/finetune/train_with_think.jsonl"
+  eval_data_path: "./data/finetune/eval_with_think.jsonl"
+
+rag:
+  embedding_model: "FinLang/finance-embeddings-investopedia"
+  # 金融备选方案: FinBERT / BGE-small-zh 金融版 / MiniLM-L6-v2
+  fallback_embedding_model: "yiyanghkust/finbert-tone"
+  chunk_size: 512
+  chunk_overlap: 50
+  top_k: 8
+  rerank_top_k: 4
+  use_reranker: false
+  index_path: "./data/corpus/faiss_index.index"
+  metadata_path: "./data/corpus/chunk_metadata.json"
+  corpus_dir: "./data/corpus/chunks"
+
+reasoning:
+  think_tag_start: "<think>"
+  think_tag_end: "</think>"
+  answer_tag_start: "<answer>"
+  answer_tag_end: "</answer>"
+  min_reasoning_steps: 2
+  numeric_tolerance: 0.01
+  stream_think_first: true
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  max_concurrency: 1
+  sse_keep_alive: true
+  temperature_max: 0.7
+  # 敏感词过滤（基础列表，生产环境可对接外部服务）
+  sensitive_words:
+    - "色情"
+    - "赌博"
+    - "诈骗"
+    - "洗钱"
+    - "内幕交易"
+    - "操纵市场"
+
+evaluation:
+  faithfulness_threshold: 0.72
+  em_threshold: 0.15
+  numeric_em_threshold: 0.65
+  test_data_path: "./data/finetune/test.jsonl"
+  output_dir: "./evaluation/results"

@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model weights (too large for GitHub)
+models/base/**/*.safetensors
+models/base/**/*.bin
+models/base/**/*.pt
+models/base/**/*.ckpt
+models/base/**/*.pth
+models/base/**/.cache/
+models/base/**/figures/
+models/base/._____temp/
+models/base/.lock/
+models/adapters/**/*.safetensors
+models/adapters/**/*.bin
+models/adapters/**/checkpoint-*/
+
+# FAISS index & data (regenerable)
+data/corpus/faiss_index.index
+data/corpus/chunk_metadata.json
+data/finetune/*.jsonl
+
+# Logs & outputs
+*.log
+evaluation/results/
+*.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Demo / temp files
+demo_*.txt
+demo_*.jsonl
+tmp_wheels/
+*.whl
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/

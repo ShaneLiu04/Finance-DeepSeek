@@ -1,0 +1,43 @@
+# Core ML & LLM
+torch>=2.1.0,<2.5.0
+transformers>=4.39.0
+accelerate>=0.28.0
+bitsandbytes>=0.43.0
+peft>=0.9.0
+trl>=0.8.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
+
+# RAG & Vector Search
+faiss-cpu>=1.8.0
+sentence-transformers>=2.5.0
+langchain>=0.1.0
+langchain-text-splitters>=0.0.1
+
+# API & Web
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+sse-starlette>=2.0.0
+pydantic>=2.6.0
+python-multipart>=0.0.9
+
+# Data & Utils
+pyyaml>=6.0.1
+numpy>=1.26.0,<2.0.0
+pandas>=2.2.0
+datasets>=2.18.0
+scikit-learn>=1.4.0
+
+# Evaluation
+rouge-score>=0.1.2
+sacrebleu>=2.4.0
+nltk>=3.8.1
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Logging & Monitoring
+loguru>=0.7.0
+psutil>=5.9.0
+
+# Optional: for DeepSeek API teacher model generation
+openai>=1.14.0
