@@ -125,6 +125,42 @@ Finance-DeepSeek 是一款面向**金融领域**的生产级问答系统，基�
 
 ---
 
+## 📦 未包含的文件与获取方式
+
+由于 GitHub 单文件 100MB 限制及环境独立性原则，以下文件**未包含在仓库中**，但你只需运行对应脚本即可自动生成或下载：
+
+| 缺失文件/目录 | 原因 | 大小 | 获取方式 |
+|-------------|------|------|---------|
+| `models/base/**/*.safetensors` | 基座模型权重过大 | ~3.5 GB | **首次运行时自动从 HuggingFace 下载**（`deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`） |
+| `models/adapters/**/adapter_model.safetensors` | LoRA 适配器权重 | ~590 MB | 方式①：运行 `python run_training.py` 自行训练  <br>方式②：从 HuggingFace 下载预训练 adapter（如有发布） |
+| `data/corpus/faiss_index.index` | FAISS 向量索引 | ~15 KB（随语料增长） | 运行 **`python run_data_gen.py`** 自动重建 |
+| `data/corpus/chunk_metadata.json` | Chunk 元数据 | ~1 KB | 同上，随索引一起生成 |
+| `data/finetune/*.jsonl` | SFT 训练数据 | ~500 KB | 同上，`run_data_gen.py` 自动生成 Alpaca + FinQA 数据 |
+| `venv/` | Python 虚拟环境 | ~5 GB | 自行创建：`python -m venv venv` |
+| `evaluation/results/` | 评测输出图表 | 运行时生成 | 运行 `python run_benchmark.py` 自动生成 |
+
+### 一键准备所有缺失文件
+
+```bash
+# 1. 创建虚拟环境
+python -m venv venv
+# Linux/macOS: source venv/bin/activate
+# Windows:     venv\Scripts\activate
+
+# 2. 安装依赖
+pip install -r requirements.txt
+
+# 3. 一键生成数据 + 索引（自动下载 Embedding 模型和 tokenizer）
+python run_data_gen.py
+
+# 4. （可选）训练 LoRA Adapter
+python run_training.py
+```
+
+完成以上步骤后，所有缺失文件均已就位，可直接启动 API 服务。
+
+---
+
 ## 🚀 快速开始
 
 ### 环境要求
