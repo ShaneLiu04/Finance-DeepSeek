@@ -64,17 +64,20 @@ def format_chat_messages(example):
     """
     messages = example["messages"]
     # 使用 Qwen 的 chat template（训练时直接拼接也可）
-    # 此处做简单拼接，确保 <think> 与 <answer> 结构保留
+    # 此处做简单拼接，确保  与 <answer> 结构保留
     text_parts = []
     for msg in messages:
         role = msg["role"]
         content = msg["content"]
         if role == "system":
-            text_parts.append(f"<|im_start|>system\n{content}<|im_end|>")
+            text_parts.append(f"<|im_start|>system\n{content}
+")
         elif role == "user":
-            text_parts.append(f"<|im_start|>user\n{content}<|im_end|>")
+            text_parts.append(f"<|im_start|>user\n{content}
+")
         elif role == "assistant":
-            text_parts.append(f"<|im_start|>assistant\n{content}<|im_end|>")
+            text_parts.append(f"<|im_start|>assistant\n{content}
+")
     return {"text": "\n".join(text_parts)}
 
 

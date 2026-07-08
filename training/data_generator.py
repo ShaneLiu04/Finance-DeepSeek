@@ -1,5 +1,5 @@
 """
-带 <think> 标签的 SFT 数据生成器
+带  标签的 SFT 数据生成器
 利用教师模型（DeepSeek-R1 API / 本地 7B 蒸馏版）生成包含结构化推理链的样本
 """
 
@@ -22,19 +22,19 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
-# 教师模型 Prompt 模板（生成带 <think> 与 <answer> 的金融解答）
-TEACHER_PROMPT_TEMPLATE = """你是一位资深金融分析师。请针对以下金融问题，给出完整的逐步推理过程，并将思考过程放在 <think> 标签内，最终答案放在 <answer> 标签内。
+# 教师模型 Prompt 模板（生成带  与 <answer> 的金融解答）
+TEACHER_PROMPT_TEMPLATE = """你是一位资深金融分析师。请针对以下金融问题，给出完整的逐步推理过程，并将思考过程放在  标签内，最终答案放在 <answer> 标签内。
 
 问题：{question}
 上下文：{context}
 
 要求：
-1. <think> 内必须包含至少 2 个清晰的推理步骤。
+1.  内必须包含至少 2 个清晰的推理步骤。
 2. 所有数值计算必须展示中间过程。
 3. <answer> 内只包含最终结论或数值，保留 2~4 位小数。
 4. 如果信息不足，在 <answer> 中明确说明"根据现有资料无法确定"。
 
-请直接输出 <think> 与 <answer> 标签内容。"""
+请直接输出  与 <answer> 标签内容。"""
 
 
 class SFTDataGenerator:
@@ -71,7 +71,7 @@ class SFTDataGenerator:
     def _call_teacher_model(self, question: str, context: str) -> Optional[str]:
         """
         调用教师模型（DeepSeek-R1 API 或本地 7B）生成带推理链的解答
-        返回原始文本（应包含 <think> 与 <answer>）
+        返回原始文本（应包含  与 <answer>）
         """
         prompt = TEACHER_PROMPT_TEMPLATE.format(question=question, context=context)
         client = self._get_api_client()
@@ -98,10 +98,11 @@ class SFTDataGenerator:
             except Exception as e:
                 logger.warning(f"Local 7B teacher failed: {e}")
 
+        logger.error("No teacher model available; cannot generate training data")
         return None
 
     def _call_local_teacher(self, model_path: str, prompt: str) -> str:
-        """本地 7B 蒸馏版作为教师模型"""
+        """本地模型回退（简化版，实际使用需加载 tokenizer + model）"""
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -121,241 +122,125 @@ class SFTDataGenerator:
                 top_p=0.9,
                 do_sample=True,
             )
-        text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-        # 清理显存
-        del model
-        torch.cuda.empty_cache()
-        return text
+        return tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 
-    def generate_from_finqa(
-        self,
-        finqa_path: str,
-        output_path: str,
-        max_samples: int = 2000,
-    ) -> str:
+    def _validate_sample(self, raw_text: str, question: str) -> bool:
         """
-        从 FinQA 格式数据集生成带推理链的 SFT 数据
+        校验生成的样本是否满足格式要求
         """
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        samples = []
+        from reasoning import ChainParser
 
-        if not os.path.exists(finqa_path):
-            logger.warning(f"FinQA data not found at {finqa_path}, using demo samples")
-            raw_samples = self._demo_finqa_samples()
-        else:
-            raw_samples = self._load_finqa(finqa_path)
+        parser = ChainParser(min_steps=self.min_steps)
+        parsed = parser.parse(raw_text)
 
-        for i, item in enumerate(raw_samples[:max_samples]):
-            try:
-                formatted = self._format_sample(item)
-                if formatted and self._validate_sample(formatted):
-                    samples.append(formatted)
-            except Exception as e:
-                logger.warning(f"Sample {i} generation failed: {e}")
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            for s in samples:
-                f.write(json.dumps(s, ensure_ascii=False) + "\n")
-
-        logger.info(f"Generated {len(samples)} SFT samples -> {output_path}")
-        return output_path
-
-    def _load_finqa(self, path: str) -> List[Dict]:
-        """加载 FinQA 格式数据"""
-        samples = []
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
-                samples.append(obj)
-        return samples
-
-    def _format_sample(self, item: Dict) -> Optional[Dict]:
-        """
-        将原始 FinQA 样本转换为 Alpaca 格式，并注入 <think> 与 <answer>
-        优先使用教师模型生成的推理链，其次使用已有 gold_reasoning，最后回退到占位符
-        """
-        question = item.get("question", "")
-        answer = item.get("answer", "")
-        context = item.get("context", item.get("pre_text", "") + " " + item.get("post_text", ""))
-        gold_reasoning = item.get("reasoning", "")
-
-        # 优先级 1: 已有高质量推理链
-        if gold_reasoning and self._looks_like_reasoning(gold_reasoning):
-            think = self._sanitize_think(gold_reasoning)
-        else:
-            # 优先级 2: 调用教师模型（DeepSeek-R1 API / 本地 7B）
-            teacher_output = self._call_teacher_model(question, context)
-            if teacher_output:
-                parsed_think, parsed_answer = self._extract_think_answer(teacher_output)
-                if parsed_think and parsed_answer:
-                    think = parsed_think
-                    answer = parsed_answer
-                else:
-                    think = self._sanitize_think(teacher_output)
-            else:
-                # 优先级 3: 占位符规则生成
-                think = self._generate_think_placeholder(question, context, answer)
-
-        final_answer = self._sanitize_answer(answer)
-
-        system_msg = (
-            "你是一位资深金融分析师。思考过程请放在 <think> 标签内，"
-            "最终答案放在 <answer> 标签内。"
-        )
-        user_msg = f"问题：{question}\n上下文：{context}".strip()
-        assistant_msg = f"<think>\n{think}\n</think>\n<answer>\n{final_answer}\n</answer>"
-
-        return {
-            "messages": [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": user_msg},
-                {"role": "assistant", "content": assistant_msg},
-            ],
-            "source": item.get("source", "finqa"),
-        }
-
-    def _extract_think_answer(self, text: str) -> tuple:
-        """从教师模型输出中提取 <think> 和 <answer> 内容"""
-        think_match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
-        answer_match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL)
-        think = think_match.group(1).strip() if think_match else ""
-        answer = answer_match.group(1).strip() if answer_match else ""
-        return think, answer
-
-    def _looks_like_reasoning(self, text: str) -> bool:
-        """判断文本是否包含推理步骤"""
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
-        return len(lines) >= self.min_steps
-
-    def _sanitize_think(self, text: str) -> str:
-        """清洗推理链，去除已有标签"""
-        text = text.replace("<think>", "").replace("</think>", "")
-        text = text.replace("<answer>", "").replace("</answer>", "")
-        return text.strip()
-
-    def _sanitize_answer(self, text: str) -> str:
-        """清洗答案，保留数值精度，避免科学计数法"""
-        text = str(text).strip()
-        try:
-            d = Decimal(text)
-            # 保留最多4位小数，去除末尾的0，但避免 normalize() 产生科学计数法
-            quantized = d.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-            # 转为字符串后去除末尾0和小数点
-            result = str(quantized)
-            if "." in result:
-                result = result.rstrip("0").rstrip(".")
-            return result if result else str(quantized)
-        except Exception:
-            return text
-
-    def _generate_think_placeholder(self, question: str, context: str, answer: str) -> str:
-        """当无教师模型时，生成简单占位推理链"""
-        numbers = re.findall(r"[-+]?\d+\.?\d*", question + " " + context)
-        steps = ["步骤1: 识别问题中的关键财务指标与已知数值。"]
-        if numbers:
-            steps.append(f"步骤2: 提取关键数值：{', '.join(numbers[:4])}。")
-        steps.append("步骤3: 应用相关金融公式进行计算与验证。")
-        steps.append(f"步骤4: 得出最终结论 {answer}，并检查合理性。")
-        return "\n".join(steps)
-
-    def _validate_sample(self, sample: Dict) -> bool:
-        """规则校验生成样本的质量，包含数值一致性检查"""
-        assistant = sample["messages"][2]["content"]
-        has_think = "<think>" in assistant and "</think>" in assistant
-        has_answer = "<answer>" in assistant and "</answer>" in assistant
-
-        if not (has_think and has_answer):
+        if parsed.fallback_triggered:
+            logger.warning(f"Sample fallback triggered: {parsed.fallback_reason}")
             return False
 
-        think_match = re.search(r"<think>(.*?)</think>", assistant, re.DOTALL)
-        if not think_match:
+        if len(parsed.reasoning_steps) < self.min_steps:
+            logger.warning(f"Too few steps: {len(parsed.reasoning_steps)}")
             return False
 
-        think_text = think_match.group(1)
-        lines = [l.strip() for l in think_text.splitlines() if l.strip()]
-        if len(lines) < self.min_steps:
+        # 数值一致性校验
+        from reasoning import ChainValidator
+        validator = ChainValidator(numeric_tolerance=self.numeric_tolerance)
+        ok, reason = validator.validate(parsed.reasoning_steps, parsed.final_answer)
+        if not ok:
+            logger.warning(f"Numeric inconsistency: {reason}")
             return False
-
-        # 数值一致性校验：提取 think 和 answer 中的数值，检查是否兼容
-        answer_match = re.search(r"<answer>(.*?)</answer>", assistant, re.DOTALL)
-        if answer_match:
-            answer_text = answer_match.group(1).strip()
-            if not self._numeric_consistency_check(think_text, answer_text):
-                logger.warning("Numeric inconsistency detected between think and answer")
-                return False
 
         return True
 
-    def _numeric_consistency_check(self, think_text: str, answer_text: str) -> bool:
-        """检查推理链中的数值与最终答案是否一致（1%容差）"""
-        from finance_deepseek.reasoning.validator import ChainValidator
-        validator = ChainValidator(numeric_tolerance=self.numeric_tolerance)
-        # 提取 think 中的最后一行数字作为预期结果
-        think_nums = re.findall(r"[-+]?\d+\.?\d*", think_text)
-        answer_nums = re.findall(r"[-+]?\d+\.?\d*", answer_text)
-        if not think_nums or not answer_nums:
-            return True  # 无数值可比较，放行
-        # 比较最后一个数值（通常是最接近答案的）
-        return validator.safe_numeric_compare(think_nums[-1], answer_nums[0])
-
-    def generate_alpaca_base(
+    def generate_dataset(
         self,
+        questions: List[Dict[str, str]],
         output_path: str,
-        num_samples: int = 500,
-    ) -> str:
-        """生成通用金融术语解释 Alpaca 数据"""
+        max_retries: int = 3,
+    ) -> int:
+        """
+        批量生成 SFT 数据集
+
+        Args:
+            questions: 每个元素为 {"question": str, "context": str, "answer": str}
+            output_path: 输出 .jsonl 文件路径
+            max_retries: 每个样本最大重试次数
+
+        Returns:
+            成功生成的样本数
+        """
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        templates = [
-            ("什么是市盈率（P/E Ratio）？", "市盈率是股票价格与每股收益（EPS）的比率，用于衡量股票估值水平。计算公式：P/E = 股价 / EPS。"),
-            ("解释净资产收益率（ROE）及其意义。", "ROE = 净利润 / 平均股东权益，反映股东权益的收益水平，是衡量公司盈利能力的核心指标。"),
-            ("什么是复利？", "复利是指利息也计入本金产生新的利息。公式：A = P(1 + r/n)^(nt)。"),
-            ("DCF 模型的核心思想是什么？", "将未来自由现金流按适当折现率折现到当前，加总得到企业内在价值。"),
-            ("什么是 EPS？", "每股收益（EPS）=（净利润 - 优先股股利）/ 流通在外普通股加权平均股数。"),
-        ]
-        samples = []
-        system_msg = "你是一位资深金融分析师。思考过程请放在 <think> 标签内，最终答案放在 <answer> 标签内。"
-        for i in range(num_samples):
-            q, a = templates[i % len(templates)]
-            think = "步骤1: 理解问题涉及的核心概念。\n步骤2: 给出定义、公式及实际意义。"
-            assistant = f"<think>\n{think}\n</think>\n<answer>\n{a}\n</answer>"
-            samples.append({
-                "messages": [
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": q},
-                    {"role": "assistant", "content": assistant},
-                ],
-                "source": "alpaca_base",
-            })
+        valid_count = 0
 
         with open(output_path, "w", encoding="utf-8") as f:
-            for s in samples:
-                f.write(json.dumps(s, ensure_ascii=False) + "\n")
+            for item in questions:
+                question = item["question"]
+                context = item.get("context", "")
 
-        logger.info(f"Generated {len(samples)} base Alpaca samples -> {output_path}")
-        return output_path
+                for attempt in range(max_retries):
+                    raw = self._call_teacher_model(question, context)
+                    if raw is None:
+                        break
 
-    def _demo_finqa_samples(self) -> List[Dict]:
-        """内置演示金融算术样本"""
-        return [
-            {
-                "question": "某公司股价为 50 元，每股收益 EPS 为 2.5 元，求市盈率？",
-                "answer": "20.0",
-                "context": "市盈率 = 股价 / EPS",
-                "reasoning": "步骤1: 识别已知条件：股价 = 50 元，EPS = 2.5 元。\n步骤2: 应用市盈率公式：P/E = 50 / 2.5 = 20。\n步骤3: 验证：20 倍属于合理估值区间，计算无误。",
-            },
-            {
-                "question": "投资本金 10000 元，年利率 5%，按年复利投资 3 年，本利和是多少？",
-                "answer": "11576.25",
-                "context": "复利公式 A = P(1+r)^t",
-                "reasoning": "步骤1: 识别参数：P=10000, r=0.05, t=3, n=1。\n步骤2: 代入公式：A = 10000 * (1+0.05)^3 = 10000 * 1.157625 = 11576.25。\n步骤3: 验证：逐年计算 10500, 11025, 11576.25，结果一致。",
-            },
-            {
-                "question": "公司净利润 5000 万，股东权益 2 亿，求 ROE？",
-                "answer": "25.0%",
-                "context": "ROE = 净利润 / 股东权益",
-                "reasoning": "步骤1: 提取数值：净利润 = 5000 万，股东权益 = 20000 万。\n步骤2: 计算 ROE = 5000 / 20000 = 0.25 = 25%。\n步骤3: 使用杜邦分析复核：ROE 处于健康水平。",
-            },
-        ]
+                    if self._validate_sample(raw, question):
+                        # 构造 messages 格式（兼容 Qwen chat template）
+                        sample = {
+                            "messages": [
+                                {"role": "system", "content": "你是一位资深金融分析师。请给出逐步推理过程，将思考放在  标签内，最终答案放在 <answer> 标签内。"},
+                                {"role": "user", "content": question},
+                                {"role": "assistant", "content": raw},
+                            ]
+                        }
+                        f.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                        valid_count += 1
+                        logger.info(f"Generated valid sample {valid_count}: {question[:40]}...")
+                        break
+                    else:
+                        logger.warning(f"Attempt {attempt + 1}/{max_retries} failed for: {question[:40]}...")
+
+        logger.info(f"Dataset generation complete: {valid_count}/{len(questions)} valid samples -> {output_path}")
+        return valid_count
+
+
+# =============================================================================
+# 内置金融问题模板（用于快速生成训练数据）
+# =============================================================================
+
+DEMO_QUESTIONS = [
+    {
+        "question": "某公司股价50元，每股收益2.5元，求市盈率？",
+        "context": "市盈率（P/E Ratio）= 股价 / 每股收益（EPS）",
+        "answer": "20.0",
+    },
+    {
+        "question": "投资本金10000元，年利率5%，按年复利投资3年，本利和是多少？",
+        "context": "复利公式：A = P * (1 + r)^t",
+        "answer": "11576.25",
+    },
+    {
+        "question": "某公司净利润5000万元，平均股东权益2.5亿元，求ROE？",
+        "context": "ROE = 净利润 / 平均股东权益",
+        "answer": "0.20",
+    },
+    {
+        "question": "解释净资产收益率（ROE）及其在财务分析中的意义。",
+        "context": "ROE 衡量公司利用股东权益创造利润的效率。杜邦分析将其拆解为净利率 × 资产周转率 × 权益乘数。",
+        "answer": "ROE 是衡量股东权益回报效率的核心指标，杜邦分析可进一步拆解其驱动因素。",
+    },
+    {
+        "question": "DCF 折现现金流模型中，若第1年自由现金流1000万，折现率10%，永续增长率3%，求企业价值？",
+        "context": "两阶段 DCF：预测期现值 + 终值现值。终值 = FCF_n * (1+g) / (r-g)",
+        "answer": "约14285.71万",
+    },
+]
+
+
+def main():
+    """CLI 入口：生成示例训练数据"""
+    generator = SFTDataGenerator(teacher_backend="api")
+    output = "./data/sft/train_with_think.jsonl"
+    count = generator.generate_dataset(DEMO_QUESTIONS, output)
+    print(f"Generated {count} training samples at {output}")
+
+
+if __name__ == "__main__":
+    main()
