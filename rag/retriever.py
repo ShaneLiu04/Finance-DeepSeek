@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .embeddings import EmbeddingProvider
 from .indexer import FaissIndexer, load_config
+from .reranker import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +21,37 @@ logger = logging.getLogger(__name__)
 class DenseRetriever:
     """
     基于 FAISS + Embedding 的稠密检索器
+    支持可选 Cross-Encoder 精排
     """
 
-    def __init__(self, indexer: FaissIndexer = None, embedding_provider: EmbeddingProvider = None):
+    def __init__(
+        self,
+        indexer: FaissIndexer = None,
+        embedding_provider: EmbeddingProvider = None,
+        reranker: CrossEncoderReranker = None,
+    ):
         self.cfg = load_config()["rag"]
         self.provider = embedding_provider or EmbeddingProvider(
             model_name=self.cfg["embedding_model"],
             fallback_model_name=self.cfg["fallback_embedding_model"],
         )
         self.indexer = indexer or FaissIndexer(embedding_provider=self.provider)
+
+        # 初始化可选的 Cross-Encoder 精排器
+        self.reranker = None
+        if self.cfg.get("use_reranker", False):
+            rerank_cfg = self.cfg.get("reranker", {})
+            rerank_model = rerank_cfg.get("model_name")
+            if reranker is not None:
+                self.reranker = reranker
+            elif rerank_model:
+                self.reranker = CrossEncoderReranker(
+                    model_name=rerank_model,
+                    max_length=rerank_cfg.get("max_length", 512),
+                    batch_size=rerank_cfg.get("batch_size", 16),
+                )
+            else:
+                self.reranker = CrossEncoderReranker()
 
         # 尝试加载已有索引
         try:
@@ -86,11 +109,14 @@ class DenseRetriever:
 
     def _rerank(self, query: str, candidates: List[Dict], top_k: int) -> List[Dict]:
         """
-        轻量级精排占位（可接入 cross-encoder）
-        当前实现：按已有分数截断
+        调用 Cross-Encoder 精排器对候选结果重排序
+
+        若 reranker 未初始化（如模型加载失败），则回退到按原分数截断。
         """
-        # TODO: integrate cross-encoder if needed
-        return candidates[:top_k]
+        if self.reranker is None:
+            logger.warning("Reranker requested but not initialized; falling back to bi-encoder scores")
+            return candidates[:top_k]
+        return self.reranker.rerank(query, candidates, top_k=top_k)
 
     def format_context(self, chunks: List[Dict]) -> str:
         """
