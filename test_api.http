@@ -1,0 +1,120 @@
+### 基础配置
+@baseUrl = http://localhost:8000
+@contentType = application/json
+
+### 1. 健康检查
+GET {{baseUrl}}/health
+Content-Type: {{contentType}}
+
+### 2. 查询索引状态
+GET {{baseUrl}}/index/status
+Content-Type: {{contentType}}
+
+### 3. 构建索引（首次运行必需）
+POST {{baseUrl}}/index/build
+Content-Type: {{contentType}}
+
+{
+  "corpus_dir": "./data/corpus"
+}
+
+### 4. RAG 检索
+POST {{baseUrl}}/retrieve
+Content-Type: {{contentType}}
+
+{
+  "query": "什么是市盈率？",
+  "top_k": 10,
+  "rerank_top_k": 5
+}
+
+### 5. 端到端推理生成（带 RAG）
+POST {{baseUrl}}/generate
+Content-Type: {{contentType}}
+
+{
+  "query": "某公司股价50元，每股收益2.5元，求市盈率？",
+  "use_rag": true,
+  "temperature": 0.6,
+  "max_new_tokens": 1024,
+  "top_p": 0.9
+}
+
+### 6. 端到端推理生成（无 RAG，纯模型推理）
+POST {{baseUrl}}/generate
+Content-Type: {{contentType}}
+
+{
+  "query": "解释净资产收益率（ROE）及其意义",
+  "use_rag": false,
+  "temperature": 0.6,
+  "max_new_tokens": 1024,
+  "top_p": 0.9
+}
+
+### 7. 独立推理链解析
+POST {{baseUrl}}/parse
+Content-Type: {{contentType}}
+
+{
+  "raw_text": "\u003cthink\u003e\n步骤1: 识别参数 P=10000, r=0.05, t=3\n步骤2: 计算 A = 10000 * (1+0.05)^3 = 11576.25\n\u003c/think\u003e\n\u003canswer\u003e\n11576.25\n\u003c/answer\u003e",
+  "sources": ["https://www.investopedia.com/terms/c/compoundinterest.asp"]
+}
+
+### 8. 独立数值校验（通过）
+POST {{baseUrl}}/validate
+Content-Type: {{contentType}}
+
+{
+  "reasoning_steps": [
+    "步骤1: 股价 = 50 元，EPS = 2.5 元",
+    "步骤2: P/E = 50 / 2.5 = 20"
+  ],
+  "final_answer": "20.0"
+}
+
+### 9. 独立数值校验（失败）
+POST {{baseUrl}}/validate
+Content-Type: {{contentType}}
+
+{
+  "reasoning_steps": [
+    "步骤1: 股价 = 50 元，EPS = 2.5 元",
+    "步骤2: P/E = 50 / 2.5 = 20"
+  ],
+  "final_answer": "25.0"
+}
+
+### 10. 复杂金融计算：复利
+POST {{baseUrl}}/generate
+Content-Type: {{contentType}}
+
+{
+  "query": "投资本金10000元，年利率5%，按年复利投资3年，本利和是多少？",
+  "use_rag": true,
+  "temperature": 0.6,
+  "max_new_tokens": 1024,
+  "top_p": 0.9
+}
+
+### 11. 概念解释：ROE
+POST {{baseUrl}}/generate
+Content-Type: {{contentType}}
+
+{
+  "query": "解释净资产收益率（ROE）及其意义",
+  "use_rag": true,
+  "temperature": 0.6,
+  "max_new_tokens": 1024,
+  "top_p": 0.9
+}
+
+### 12. 检索+精排测试
+POST {{baseUrl}}/retrieve
+Content-Type: {{contentType}}
+
+{
+  "query": "DCF 折现现金流模型",
+  "top_k": 10,
+  "rerank_top_k": 3
+}
