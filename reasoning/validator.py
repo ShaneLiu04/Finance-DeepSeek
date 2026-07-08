@@ -55,8 +55,7 @@ class ChainValidator:
         if not matched:
             msg = (
                 f"Answer number {primary_answer_num} not found in reasoning chain numbers "
-                f"({chain_numbers[-5:]})"
-            )
+                f"({chain_numbers[-5:]})")
             logger.warning(msg)
             return False, msg
 

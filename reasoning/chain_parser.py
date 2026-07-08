@@ -138,7 +138,7 @@ class ChainParser:
             # 匹配 "步骤1:", "步骤1：", "1.", "(1)", "①" 等前缀并拆分
             # 使用更宽松的正则，捕获步骤编号后的内容
             split_by_number = re.split(
-                r"(?:步骤\s*\d+[\s:：.]+)|(?:Step\s*\d+[\s:：.]+)|(?:\d+[:：.]\s+)|(?:\(\d+\)\s+)|(?:[①②③④⑤⑥⑦⑧⑨⑩]\s*)",
+                r"(?:步骤\s*\d+[\s:：.]+)|(?:Step\s*\d+[\s:：.]+)|(?:\d+[:：.\s]+)|(?:\(\d+\)\s+)|(?:[①②③④⑤⑥⑦⑧⑨⑩]\s*)",
                 line,
             )
             split_by_number = [s.strip() for s in split_by_number if s.strip()]
