@@ -1,33 +1,163 @@
-version: "3.8"
+# =============================================================================
+# Finance-DeepSeek — Docker Compose Stack
+# =============================================================================
+# Usage:
+#   docker compose up --build        # build & start all services
+#   docker compose up api            # start only API service
+#   docker compose run --rm trainer  # run training job once
+#   docker compose run --rm data-gen # run data generation once
+#   docker compose run --rm indexer  # build FAISS index from corpus
+# =============================================================================
 
 services:
-  finance-deepseek:
+  # ---------------------------------------------------------------------------
+  # API Service — FastAPI + Uvicorn (GPU-enabled)
+  # ---------------------------------------------------------------------------
+  api:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     image: finance-deepseek:latest
     container_name: finance-deepseek-api
     runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - CUDA_VISIBLE_DEVICES=0
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./models:/app/models
-      - ./data:/app/data
-      - ./evaluation/results:/app/evaluation/results
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]
-    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - TRANSFORMERS_CACHE=/app/models/.cache
+      - HF_HOME=/app/models/.cache/huggingface
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+    env_file:
+      - .env
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+    restart: unless-stopped
+    command: >
+      uvicorn api.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 1
+      --log-level info
+
+  # ---------------------------------------------------------------------------
+  # Training Service — QLoRA fine-tuning (one-shot, GPU required)
+  # ---------------------------------------------------------------------------
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: finance-deepseek:latest
+    container_name: finance-deepseek-trainer
+    profiles: ["training"]
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - TRANSFORMERS_CACHE=/app/models/.cache
+      - HF_HOME=/app/models/.cache/huggingface
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+    env_file:
+      - .env
+    command: >
+      python -m training.qlora_trainer
+
+  # ---------------------------------------------------------------------------
+  # Data Generation Service — SFT dataset generation (one-shot)
+  # ---------------------------------------------------------------------------
+  data-gen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: finance-deepseek:latest
+    container_name: finance-deepseek-data-gen
+    profiles: ["data-gen"]
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - TRANSFORMERS_CACHE=/app/models/.cache
+      - HF_HOME=/app/models/.cache/huggingface
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    command: >
+      python -m training.data_generator
+
+  # ---------------------------------------------------------------------------
+  # Indexer Service — FAISS index build from corpus (one-shot)
+  # ---------------------------------------------------------------------------
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: finance-deepseek:latest
+    container_name: finance-deepseek-indexer
+    profiles: ["indexer"]
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - TRANSFORMERS_CACHE=/app/models/.cache
+      - HF_HOME=/app/models/.cache/huggingface
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    command: >
+      python -c "from rag.indexer import build_from_corpus_dir; build_from_corpus_dir('/app/data/corpus')"
